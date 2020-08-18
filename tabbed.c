@@ -49,7 +49,7 @@
 
 enum { ColFG, ColBG, ColLast };       /* color */
 enum { WMProtocols, WMDelete, WMName, WMState, WMFullscreen,
-       XEmbed, WMSelectTab, WMLast }; /* default atoms */
+       XEmbed, WMSelectTab, WMIcon, WMLast }; /* default atoms */
 
 typedef union {
 	int i;
@@ -135,6 +135,7 @@ static void updatenumlockmask(void);
 static void updatetitle(int c);
 static int xerror(Display *dpy, XErrorEvent *ee);
 static void xsettitle(Window w, const char *str);
+static void xseticon(Window w, Window c);
 
 /* variables */
 static int screen;
@@ -455,6 +456,7 @@ focus(int c)
 			n += snprintf(&buf[n], sizeof(buf) - n, " %s", cmd[i]);
 
 		xsettitle(win, buf);
+		xseticon(win, None);
 		XRaiseWindow(dpy, win);
 
 		return;
@@ -469,6 +471,7 @@ focus(int c)
 	sendxembed(c, XEMBED_FOCUS_IN, XEMBED_FOCUS_CURRENT, 0, 0);
 	sendxembed(c, XEMBED_WINDOW_ACTIVATE, 0, 0, 0);
 	xsettitle(win, clients[c]->name);
+	xseticon(win, clients[c]->win);
 
 	if (sel != c) {
 		lastsel = sel;
@@ -748,6 +751,7 @@ manage(Window w)
 
 		clients[nextpos] = c;
 		updatetitle(nextpos);
+		xseticon(win, clients[nextpos]->win);
 
 		XLowerWindow(dpy, w);
 		XMapWindow(dpy, w);
@@ -871,6 +875,9 @@ propertynotify(const XEvent *e)
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
+	} else if (ev->state != PropertyDelete && ev->atom == wmatom[WMIcon] &&
+	           (c = getclient(ev->window)) > -1) {
+		xseticon(win, clients[c]->win);
 	}
 }
 
@@ -995,6 +1002,7 @@ setup(void)
 	wmatom[WMSelectTab] = XInternAtom(dpy, "_TABBED_SELECT_TAB", False);
 	wmatom[WMState] = XInternAtom(dpy, "_NET_WM_STATE", False);
 	wmatom[XEmbed] = XInternAtom(dpy, "_XEMBED", False);
+	wmatom[WMIcon] = XInternAtom(dpy, "_NET_WM_ICON", False);
 
 	/* init appearance */
 	wx = 0;
@@ -1263,6 +1271,33 @@ xsettitle(Window w, const char *str)
 		XSetTextProperty(dpy, w, &xtp, XA_WM_NAME);
 		XFree(xtp.value);
 	}
+}
+
+void
+xseticon(Window w, Window c)
+{
+	if (c == None) return;
+	Atom ret_type;
+	int ret_format;
+	unsigned long ret_nitems, ret_nleft;
+	long offset = 0L;
+	unsigned char *data;
+
+	XDeleteProperty(dpy, win, wmatom[WMIcon]);
+	do {
+		if (XGetWindowProperty(dpy, c, wmatom[WMIcon], offset, LONG_MAX, False,
+		                       XA_CARDINAL, &ret_type, &ret_format, &ret_nitems,
+		                       &ret_nleft, &data) != Success
+		    || ret_type != XA_CARDINAL || ret_format != 32)
+		{
+			XFree(data);
+			return;
+		}
+		offset += ret_nitems;
+		XChangeProperty(dpy, win, wmatom[WMIcon], XA_CARDINAL, 32,
+		                PropModeAppend, (long *) data, ret_nitems);
+		XFree(data);
+	} while(ret_nleft != 0);
 }
 
 void
