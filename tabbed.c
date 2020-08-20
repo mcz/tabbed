@@ -446,7 +446,6 @@ focus(int c)
 {
 	char buf[BUFSIZ] = "tabbed-"VERSION" ::";
 	size_t i, n;
-	XWMHints* wmh;
 
 	/* If c, sel and clients are -1, raise tabbed-win itself */
 	if (nclients == 0) {
@@ -473,13 +472,6 @@ focus(int c)
 	if (sel != c) {
 		lastsel = sel;
 		sel = c;
-	}
-
-	if (clients[c]->urgent && (wmh = XGetWMHints(dpy, clients[c]->win))) {
-		wmh->flags &= ~XUrgencyHint;
-		XSetWMHints(dpy, clients[c]->win, wmh);
-		clients[c]->urgent = False;
-		XFree(wmh);
 	}
 
 	drawbar();
@@ -828,6 +820,7 @@ propertynotify(const XEvent *e)
 	int c;
 	char* selection = NULL;
 	Arg arg;
+	Bool urgent;
 
 	if (ev->state == PropertyNewValue && ev->atom == wmatom[WMSelectTab]) {
 		selection = getatom(WMSelectTab);
@@ -844,6 +837,11 @@ propertynotify(const XEvent *e)
 	           (wmh = XGetWMHints(dpy, clients[c]->win))) {
 		if (wmh->flags & XUrgencyHint) {
 			XFree(wmh);
+			/* mark tab as urgent regardles of whether it is selected
+			 * or not. sel has priorityover urg in drawbar() anyway,
+			 * and we could end up switching to a different tab while
+			 * this one remains urgent */
+			clients[c]->urgent = True;
 			wmh = XGetWMHints(dpy, win);
 			if (c != sel) {
 				if (urgentswitch && wmh &&
@@ -855,8 +853,8 @@ propertynotify(const XEvent *e)
 					focus(c);
 				} else {
 					/* if no switch should be performed,
-					 * mark tab as urgent */
-					clients[c]->urgent = True;
+					 * call drawbar, since the appearance
+					 * of the urgent tab changed */
 					drawbar();
 				}
 			}
@@ -864,6 +862,24 @@ propertynotify(const XEvent *e)
 				/* update tabbed urgency hint
 				 * if not set already */
 				wmh->flags |= XUrgencyHint;
+				XSetWMHints(dpy, win, wmh);
+			}
+		} else if (clients[c]->urgent) {
+			clients[c]->urgent = False;
+			/* this client has lost its urgency but another
+			 * might still be urgent*/
+			for (urgent = False, c = 0; c < nclients; c++) {
+				if (clients[c]->urgent) {
+					urgent = True;
+					break;
+				}
+			}
+			if (!urgent && (XFree(wmh), wmh = XGetWMHints(dpy, win)) &&
+			    (wmh->flags & XUrgencyHint)) {
+				/* if no other tabs are urgent, we can
+				 * remove the urgency hint on the tabbed
+				 * window, should one exist */
+				wmh->flags &= ~XUrgencyHint;
 				XSetWMHints(dpy, win, wmh);
 			}
 		}
