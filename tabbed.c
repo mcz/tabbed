@@ -131,6 +131,7 @@ static int textnw(const char *text, unsigned int len);
 static void toggle(const Arg *arg);
 static void unmanage(int c);
 static void unmapnotify(const XEvent *e);
+static void unurgent(int c);
 static void updatenumlockmask(void);
 static void updatetitle(int c);
 static int xerror(Display *dpy, XErrorEvent *ee);
@@ -305,8 +306,10 @@ destroynotify(const XEvent *e)
 	const XDestroyWindowEvent *ev = &e->xdestroywindow;
 	int c;
 
-	if ((c = getclient(ev->window)) > -1)
+	if ((c = getclient(ev->window)) > -1) {
+		unurgent(c);
 		unmanage(c);
+	}
 }
 
 void
@@ -820,7 +823,6 @@ propertynotify(const XEvent *e)
 	int c;
 	char* selection = NULL;
 	Arg arg;
-	Bool urgent;
 
 	if (ev->state == PropertyNewValue && ev->atom == wmatom[WMSelectTab]) {
 		selection = getatom(WMSelectTab);
@@ -832,10 +834,10 @@ propertynotify(const XEvent *e)
 			arg.v = cmd;
 			spawn(&arg);
 		}
-	} else if (ev->state == PropertyNewValue && ev->atom == XA_WM_HINTS &&
-	           (c = getclient(ev->window)) > -1 &&
-	           (wmh = XGetWMHints(dpy, clients[c]->win))) {
-		if (wmh->flags & XUrgencyHint) {
+	} else if (ev->atom == XA_WM_HINTS && (c = getclient(ev->window)) > -1) {
+		if (ev->state == PropertyNewValue &&
+		    (wmh = XGetWMHints(dpy, clients[c]->win)) &&
+		    (wmh->flags & XUrgencyHint)) {
 			XFree(wmh);
 			/* mark tab as urgent regardles of whether it is selected
 			 * or not. sel has priorityover urg in drawbar() anyway,
@@ -845,7 +847,7 @@ propertynotify(const XEvent *e)
 			wmh = XGetWMHints(dpy, win);
 			if (c != sel) {
 				if (urgentswitch && wmh &&
-				    !(wmh->flags & XUrgencyHint)) {
+					!(wmh->flags & XUrgencyHint)) {
 					/* only switch, if tabbed was focused
 					 * since last urgency hint if WMHints
 					 * could not be received,
@@ -864,26 +866,13 @@ propertynotify(const XEvent *e)
 				wmh->flags |= XUrgencyHint;
 				XSetWMHints(dpy, win, wmh);
 			}
-		} else if (clients[c]->urgent) {
-			clients[c]->urgent = False;
-			/* this client has lost its urgency but another
-			 * might still be urgent*/
-			for (urgent = False, c = 0; c < nclients; c++) {
-				if (clients[c]->urgent) {
-					urgent = True;
-					break;
-				}
-			}
-			if (!urgent && (XFree(wmh), wmh = XGetWMHints(dpy, win)) &&
-			    (wmh->flags & XUrgencyHint)) {
-				/* if no other tabs are urgent, we can
-				 * remove the urgency hint on the tabbed
-				 * window, should one exist */
-				wmh->flags &= ~XUrgencyHint;
-				XSetWMHints(dpy, win, wmh);
-			}
+			XFree(wmh);
+		} else {
+			/* client has either unset its urgency hint or
+			 * deleted the WM_HINTS property. treat either as
+			 * a loss of urgency */
+			unurgent(c);
 		}
-		XFree(wmh);
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
 	           (c = getclient(ev->window)) > -1) {
 		updatetitle(c);
@@ -1204,8 +1193,39 @@ unmapnotify(const XEvent *e)
 	const XUnmapEvent *ev = &e->xunmap;
 	int c;
 
-	if ((c = getclient(ev->window)) > -1)
+	if ((c = getclient(ev->window)) > -1) {
+		unurgent(c);
 		unmanage(c);
+	}
+}
+
+void
+unurgent(int c)
+{
+	XWMHints *wmh;
+	Bool urgent = False;
+
+	if (clients[c]->urgent) {
+		clients[c]->urgent = False;
+		/* this client has lost its urgency but another
+		 * might still be urgent*/
+		for (c = 0; c < nclients; c++) {
+			if (clients[c]->urgent) {
+				urgent = True;
+				break;
+			}
+		}
+		if (!urgent && (wmh = XGetWMHints(dpy, win))) {
+			if (wmh->flags & XUrgencyHint) {
+				/* if no other tabs are urgent, we can
+				 * remove the urgency hint on the tabbed
+				 * window, should one exist */
+				wmh->flags &= ~XUrgencyHint;
+				XSetWMHints(dpy, win, wmh);
+			}
+			XFree(wmh);
+		}
+	}
 }
 
 void
