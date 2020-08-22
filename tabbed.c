@@ -18,6 +18,7 @@
 #include <X11/Xft/Xft.h>
 
 #include "arg.h"
+#include "icon.h"
 
 /* XEMBED messages */
 #define XEMBED_EMBEDDED_NOTIFY          0
@@ -751,7 +752,6 @@ manage(Window w)
 
 		clients[nextpos] = c;
 		updatetitle(nextpos);
-		xseticon(win, clients[nextpos]->win);
 
 		XLowerWindow(dpy, w);
 		XMapWindow(dpy, w);
@@ -1276,28 +1276,46 @@ xsettitle(Window w, const char *str)
 void
 xseticon(Window w, Window c)
 {
-	if (c == None) return;
+	if (c == None) goto def_icon;
+
 	Atom ret_type;
-	int ret_format;
+	int ret_format, i;
 	unsigned long ret_nitems, ret_nleft;
 	long offset = 0L;
-	unsigned char *data;
+	unsigned char *cdata;
+	long *ldata;
 
 	XDeleteProperty(dpy, win, wmatom[WMIcon]);
 	do {
 		if (XGetWindowProperty(dpy, c, wmatom[WMIcon], offset, LONG_MAX, False,
 		                       XA_CARDINAL, &ret_type, &ret_format, &ret_nitems,
-		                       &ret_nleft, &data) != Success
+		                       &ret_nleft, &cdata) != Success
 		    || ret_type != XA_CARDINAL || ret_format != 32)
 		{
-			XFree(data);
-			return;
+			XFree(cdata);
+			goto def_icon;
 		}
 		offset += ret_nitems;
 		XChangeProperty(dpy, win, wmatom[WMIcon], XA_CARDINAL, 32,
-		                PropModeAppend, (long *) data, ret_nitems);
-		XFree(data);
+		                PropModeAppend, (long *) cdata, ret_nitems);
+		XFree(cdata);
 	} while(ret_nleft != 0);
+	return;
+
+	def_icon:
+	ldata = ecalloc(ICON_WIDTH * ICON_HEIGHT + 2, sizeof *ldata);
+	ldata[0] = ICON_WIDTH;
+	ldata[1] = ICON_HEIGHT;
+	for (i = 0; i < ICON_WIDTH * ICON_HEIGHT; ++i) {
+		ldata[i+2] =
+		    ((ICON_PIXEL_DATA[(i * 4) + 3] & 0xff) << 24) +  //Alpha
+		    ((ICON_PIXEL_DATA[(i * 4) + 0] & 0xff) << 16) +  //Red
+		    ((ICON_PIXEL_DATA[(i * 4) + 1] & 0xff) <<  8) +  //Green
+		    ((ICON_PIXEL_DATA[(i * 4) + 2] & 0xff) <<  0) ;  //Blue
+	}
+	XChangeProperty(dpy, win, wmatom[WMIcon], XA_CARDINAL, 32,
+	                PropModeReplace, ldata, ICON_WIDTH * ICON_HEIGHT + 2);
+	free(ldata);
 }
 
 void
