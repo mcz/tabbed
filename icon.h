@@ -1,4 +1,4 @@
-/* GIMP RGBA C-Source image dump (icon.h) */
+/* GIMP RGBA C-Source image dump (icon.c) */
 
 #define ICON_WIDTH (16)
 #define ICON_HEIGHT (16)
