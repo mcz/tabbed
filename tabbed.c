@@ -836,41 +836,44 @@ propertynotify(const XEvent *e)
 		}
 	} else if (ev->atom == XA_WM_HINTS && (c = getclient(ev->window)) > -1) {
 		if (ev->state == PropertyNewValue &&
-		    (wmh = XGetWMHints(dpy, clients[c]->win)) &&
-		    (wmh->flags & XUrgencyHint)) {
-			XFree(wmh);
-			/* mark tab as urgent regardles of whether it is selected
-			 * or not. sel has priorityover urg in drawbar() anyway,
-			 * and we could end up switching to a different tab while
-			 * this one remains urgent */
-			clients[c]->urgent = True;
-			wmh = XGetWMHints(dpy, win);
-			if (c != sel) {
-				if (urgentswitch && wmh &&
-					!(wmh->flags & XUrgencyHint)) {
-					/* only switch, if tabbed was focused
-					 * since last urgency hint if WMHints
-					 * could not be received,
-					 * default to no switch */
-					focus(c);
-				} else {
-					/* if no switch should be performed,
-					 * call drawbar, since the appearance
-					 * of the urgent tab changed */
-					drawbar();
+		    (wmh = XGetWMHints(dpy, clients[c]->win))) {
+			if (wmh->flags & XUrgencyHint) {
+				XFree(wmh);
+				/* mark tab as urgent regardles of whether it is selected
+				 * or not. sel has priorityover urg in drawbar() anyway,
+				 * and we could end up switching to a different tab while
+				 * this one remains urgent */
+				clients[c]->urgent = True;
+				wmh = XGetWMHints(dpy, win);
+				if (c != sel) {
+					if (urgentswitch && wmh &&
+						!(wmh->flags & XUrgencyHint)) {
+						/* only switch, if tabbed was focused
+						 * since last urgency hint if WMHints
+						 * could not be received,
+						 * default to no switch */
+						focus(c);
+					} else {
+						/* if no switch should be performed,
+						 * call drawbar, since the appearance
+						 * of the urgent tab changed */
+						drawbar();
+					}
 				}
-			}
-			if (wmh && !(wmh->flags & XUrgencyHint)) {
-				/* update tabbed urgency hint
-				 * if not set already */
-				wmh->flags |= XUrgencyHint;
-				XSetWMHints(dpy, win, wmh);
+				if (wmh && !(wmh->flags & XUrgencyHint)) {
+					/* update tabbed urgency hint
+					 * if not set already */
+					wmh->flags |= XUrgencyHint;
+					XSetWMHints(dpy, win, wmh);
+				}
+			} else {
+				/* client has unset its urgency hint */
+				unurgent(c);
 			}
 			XFree(wmh);
 		} else {
-			/* client has either unset its urgency hint or
-			 * deleted the WM_HINTS property. treat either as
-			 * a loss of urgency */
+			/* client has deleted the WM_HINTS property.
+			 * treat it as a loss of urgency */
 			unurgent(c);
 		}
 	} else if (ev->state != PropertyDelete && ev->atom == XA_WM_NAME &&
